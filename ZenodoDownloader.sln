@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 18
+VisualStudioVersion = 18.1.11304.174 d18.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZenodoDownloader", "ZenodoDownloader.csproj", "{FD20FE62-0AE5-6E02-31FE-A79B9008F6A9}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FD20FE62-0AE5-6E02-31FE-A79B9008F6A9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FD20FE62-0AE5-6E02-31FE-A79B9008F6A9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FD20FE62-0AE5-6E02-31FE-A79B9008F6A9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FD20FE62-0AE5-6E02-31FE-A79B9008F6A9}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {B4571122-EE66-4FE1-8114-55516A78F0BD}
+	EndGlobalSection
+EndGlobal
