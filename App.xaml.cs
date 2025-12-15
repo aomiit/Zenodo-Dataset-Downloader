@@ -90,13 +90,13 @@ namespace ZenodoDownloader
             // 创建上下文菜单
             var contextMenu = new ContextMenuStrip();
             
-            var showMenuItem = new ToolStripMenuItem("显示窗口");
+            var showMenuItem = new ToolStripMenuItem("Show Window");
             showMenuItem.Click += ShowMenuItem_Click;
             contextMenu.Items.Add(showMenuItem);
 
             contextMenu.Items.Add(new ToolStripSeparator());
 
-            var exitMenuItem = new ToolStripMenuItem("退出");
+            var exitMenuItem = new ToolStripMenuItem("Exit");
             exitMenuItem.Click += ExitMenuItem_Click;
             contextMenu.Items.Add(exitMenuItem);
 
@@ -106,14 +106,14 @@ namespace ZenodoDownloader
             // 重要：必须在设置所有属性后再设置Visible为true
             notifyIcon.Visible = true;
             
-            System.Diagnostics.Debug.WriteLine($"托盘图标已创建，图标来源: {iconSource}");
-            System.Diagnostics.Debug.WriteLine($"托盘图标可见性: {notifyIcon.Visible}");
-            System.Diagnostics.Debug.WriteLine($"托盘图标文本: {notifyIcon.Text}");
+            System.Diagnostics.Debug.WriteLine($"Tray icon created, icon source: {iconSource}");
+            System.Diagnostics.Debug.WriteLine($"Tray icon visibility: {notifyIcon.Visible}");
+            System.Diagnostics.Debug.WriteLine($"Tray icon text: {notifyIcon.Text}");
             
             // 显示测试通知（可选，用于确认托盘图标工作）
             try
             {
-                notifyIcon.ShowBalloonTip(2000, "Zenodo Downloader", "程序已启动，图标在系统托盘中", ToolTipIcon.Info);
+                notifyIcon.ShowBalloonTip(2000, "Zenodo Downloader", "Program started, icon in system tray", ToolTipIcon.Info);
             }
             catch
             {

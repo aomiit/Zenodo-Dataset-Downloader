@@ -14,7 +14,7 @@ namespace ZenodoDownloader
         public string FileName { get; set; } = "";
         public long BytesDownloaded { get; set; }
         public long TotalBytes { get; set; }
-        public double Progress => TotalBytes > 0 ? (double)BytesDownloaded / TotalBytes * 100 : 0;
+        public double Progress => TotalBytes > 0 ? Math.Min(100, (double)BytesDownloaded / TotalBytes * 100) : 0;
         public string Status { get; set; } = "";
     }
 
@@ -24,7 +24,8 @@ namespace ZenodoDownloader
         public int TotalFiles { get; set; }
         public long TotalBytesDownloaded { get; set; }
         public long TotalBytes { get; set; }
-        public double Progress => TotalBytes > 0 ? (double)TotalBytesDownloaded / TotalBytes * 100 : 0;
+        public double AverageFileProgress { get; set; }
+        public double Progress => Math.Min(100, AverageFileProgress);
     }
 
     public class ChunkProgress
@@ -32,7 +33,7 @@ namespace ZenodoDownloader
         public int ChunkIndex { get; set; }
         public long BytesDownloaded { get; set; }
         public long TotalBytes { get; set; }
-        public double Progress => TotalBytes > 0 ? (double)BytesDownloaded / TotalBytes * 100 : 0;
+        public double Progress => TotalBytes > 0 ? Math.Min(100, (double)BytesDownloaded / TotalBytes * 100) : 0;
         public string ChunkInfo => $"Chunk {ChunkIndex + 1}: {FormatFileSize(BytesDownloaded)} / {FormatFileSize(TotalBytes)} ({Progress:F1}%)";
         
         private static string FormatFileSize(long bytes)
@@ -65,6 +66,8 @@ namespace ZenodoDownloader
         private CancellationTokenSource? cancellationTokenSource;
         private PauseTokenSource? pauseTokenSource;
         private Dictionary<int, ChunkProgress> chunkProgresses = new Dictionary<int, ChunkProgress>();
+        private Dictionary<string, double> fileProgresses = new Dictionary<string, double>(); // 跟踪每个文件的进度百分比
+        private Dictionary<string, long> fileSizes = new Dictionary<string, long>(); // 跟踪每个文件的大小，用于加权平均
         private int totalFiles = 0;
         private long totalSize = 0;
         private int completedFiles = 0;
@@ -180,6 +183,15 @@ namespace ZenodoDownloader
                 completedFiles = 0;
                 totalBytesDownloaded = 0;
                 
+                // Initialize file progress tracking
+                fileProgresses.Clear();
+                fileSizes.Clear();
+                foreach (var file in fileList)
+                {
+                    fileProgresses[file.Name] = 0.0;
+                    fileSizes[file.Name] = file.Size;
+                }
+                
                 OnStatusChanged($"Found {fileList.Count} files, total size: {FormatFileSize(totalSize)}");
 
                 // Create output directory
@@ -191,7 +203,8 @@ namespace ZenodoDownloader
                     FilesCompleted = 0,
                     TotalFiles = totalFiles,
                     TotalBytesDownloaded = 0,
-                    TotalBytes = totalSize
+                    TotalBytes = totalSize,
+                    AverageFileProgress = 0.0
                 });
 
                 // Download files
@@ -205,13 +218,7 @@ namespace ZenodoDownloader
                     lock (lockObject)
                     {
                         completedFiles++;
-                        OnOverallProgressChanged(new OverallProgress
-                        {
-                            FilesCompleted = completedFiles,
-                            TotalFiles = totalFiles,
-                            TotalBytesDownloaded = totalBytesDownloaded,
-                            TotalBytes = totalSize
-                        });
+                        UpdateOverallProgress();
                     }
                 });
                 await Task.WhenAll(downloadTasks);
@@ -246,7 +253,12 @@ namespace ZenodoDownloader
                     {
                         lock (lockObject)
                         {
-                            totalBytesDownloaded += fileInfo.Size;
+                            // Ensure totalBytesDownloaded doesn't exceed totalSize
+                            long maxAllowed = totalSize - totalBytesDownloaded;
+                            if (maxAllowed > 0)
+                            {
+                                totalBytesDownloaded += Math.Min(fileInfo.Size, maxAllowed);
+                            }
                         }
                         OnFileProgressChanged(new DownloadProgress
                         {
@@ -650,34 +662,43 @@ namespace ZenodoDownloader
                                 // Chunk is complete
                                 lock (lockObject)
                                 {
+                                    // Ensure expectedSize matches TotalBytes in chunkProgresses
+                                    long chunkTotalBytes = chunkProgresses[chunk.Index].TotalBytes;
+                                    if (expectedSize != chunkTotalBytes)
+                                    {
+                                        // Update TotalBytes to match expectedSize if they differ
+                                        chunkProgresses[chunk.Index].TotalBytes = expectedSize;
+                                        chunkTotalBytes = expectedSize;
+                                    }
+                                    
                                     long previousBytesDownloaded = chunkProgresses[chunk.Index].BytesDownloaded;
-                                    chunkProgresses[chunk.Index].BytesDownloaded = expectedSize;
+                                    // Ensure BytesDownloaded doesn't exceed TotalBytes
+                                    chunkProgresses[chunk.Index].BytesDownloaded = chunkTotalBytes;
                                     
                                     // Only add the difference to avoid double counting
-                                    long bytesToAdd = expectedSize - previousBytesDownloaded;
+                                    long bytesToAdd = chunkTotalBytes - previousBytesDownloaded;
                                     if (bytesToAdd > 0)
                                     {
-                                        totalBytesDownloaded += bytesToAdd;
+                                        // Ensure totalBytesDownloaded doesn't exceed totalSize
+                                        long maxAllowed = totalSize - totalBytesDownloaded;
+                                        if (maxAllowed > 0)
+                                        {
+                                            totalBytesDownloaded += Math.Min(bytesToAdd, maxAllowed);
+                                        }
                                     }
                                     
                                     OnChunkProgressChanged(chunkProgresses);
                                     
                                     // Calculate total file progress (sum of all downloaded chunks)
                                     long fileBytesDownloaded = chunkProgresses.Values.Sum(cp => cp.BytesDownloaded);
+                                    // Ensure fileBytesDownloaded doesn't exceed fileSize
+                                    fileBytesDownloaded = Math.Min(fileBytesDownloaded, fileSize);
                                     OnFileProgressChanged(new DownloadProgress
                                     {
                                         FileName = fileName,
                                         BytesDownloaded = fileBytesDownloaded,
                                         TotalBytes = fileSize,
                                         Status = "Downloading chunks"
-                                    });
-                                    
-                                    OnOverallProgressChanged(new OverallProgress
-                                    {
-                                        FilesCompleted = completedFiles,
-                                        TotalFiles = totalFiles,
-                                        TotalBytesDownloaded = totalBytesDownloaded,
-                                        TotalBytes = totalSize
                                     });
                                 }
                                 return; // Successfully completed
@@ -733,34 +754,44 @@ namespace ZenodoDownloader
 
                             lock (lockObject)
                             {
+                                // Ensure expectedSize matches TotalBytes in chunkProgresses
+                                long chunkTotalBytes = chunkProgresses[chunk.Index].TotalBytes;
+                                if (expectedSize != chunkTotalBytes)
+                                {
+                                    // Update TotalBytes to match expectedSize if they differ
+                                    chunkProgresses[chunk.Index].TotalBytes = expectedSize;
+                                    chunkTotalBytes = expectedSize;
+                                }
+                                
                                 long previousBytes = chunkProgresses[chunk.Index].BytesDownloaded;
-                                chunkProgresses[chunk.Index].BytesDownloaded = bytesRead;
+                                // Ensure BytesDownloaded doesn't exceed TotalBytes
+                                long actualBytesDownloaded = Math.Min(bytesRead, chunkTotalBytes);
+                                chunkProgresses[chunk.Index].BytesDownloaded = actualBytesDownloaded;
                                 
                                 // Only add the difference to avoid double counting, especially on resume
-                                long bytesToAdd = bytesRead - previousBytes;
+                                long bytesToAdd = actualBytesDownloaded - previousBytes;
                                 if (bytesToAdd > 0)
                                 {
-                                    totalBytesDownloaded += bytesToAdd;
+                                    // Ensure totalBytesDownloaded doesn't exceed totalSize
+                                    long maxAllowed = totalSize - totalBytesDownloaded;
+                                    if (maxAllowed > 0)
+                                    {
+                                        totalBytesDownloaded += Math.Min(bytesToAdd, maxAllowed);
+                                    }
                                 }
                                 
                                 OnChunkProgressChanged(chunkProgresses);
                                 
                                 // Calculate total file progress (sum of all downloaded chunks)
                                 long fileBytesDownloaded = chunkProgresses.Values.Sum(cp => cp.BytesDownloaded);
+                                // Ensure fileBytesDownloaded doesn't exceed fileSize
+                                fileBytesDownloaded = Math.Min(fileBytesDownloaded, fileSize);
                                 OnFileProgressChanged(new DownloadProgress
                                 {
                                     FileName = fileName,
                                     BytesDownloaded = fileBytesDownloaded,
                                     TotalBytes = fileSize,
                                     Status = "Downloading chunks"
-                                });
-                                
-                                OnOverallProgressChanged(new OverallProgress
-                                {
-                                    FilesCompleted = completedFiles,
-                                    TotalFiles = totalFiles,
-                                    TotalBytesDownloaded = totalBytesDownloaded,
-                                    TotalBytes = totalSize
                                 });
                             }
                         }
@@ -852,26 +883,26 @@ namespace ZenodoDownloader
                             totalBytesRead += read;
 
                             // Update file progress
+                            // Ensure BytesDownloaded doesn't exceed TotalBytes
+                            long actualBytesDownloaded = Math.Min(totalBytesRead, totalSize);
+                            
+                            lock (lockObject)
+                            {
+                                // Ensure totalBytesDownloaded doesn't exceed totalSize
+                                long maxAllowed = totalSize - totalBytesDownloaded;
+                                if (maxAllowed > 0)
+                                {
+                                    totalBytesDownloaded += Math.Min(read, maxAllowed);
+                                }
+                            }
+                            
                             OnFileProgressChanged(new DownloadProgress
                             {
                                 FileName = fileName,
-                                BytesDownloaded = totalBytesRead,
+                                BytesDownloaded = actualBytesDownloaded,
                                 TotalBytes = totalSize,
                                 Status = "Downloading"
                             });
-
-                            // Update overall progress (bytes)
-                            lock (lockObject)
-                            {
-                                totalBytesDownloaded += read;
-                                OnOverallProgressChanged(new OverallProgress
-                                {
-                                    FilesCompleted = completedFiles,
-                                    TotalFiles = totalFiles,
-                                    TotalBytesDownloaded = totalBytesDownloaded,
-                                    TotalBytes = totalSize
-                                });
-                            }
                         }
                 
                 // If read completed but file size doesn't match, might be EOF error
@@ -923,7 +954,70 @@ namespace ZenodoDownloader
 
         private void OnFileProgressChanged(DownloadProgress progress)
         {
+            // Update file progress tracking (only if TotalBytes > 0 to avoid invalid progress)
+            lock (lockObject)
+            {
+                if (progress.TotalBytes > 0)
+                {
+                    fileProgresses[progress.FileName] = progress.Progress;
+                    UpdateOverallProgress();
+                }
+            }
+            
             FileProgressChanged?.Invoke(progress);
+        }
+
+        private void UpdateOverallProgress()
+        {
+            // Ensure totalBytesDownloaded doesn't exceed totalSize
+            // This prevents progress from exceeding 100%
+            long actualTotalBytesDownloaded = Math.Min(totalBytesDownloaded, totalSize);
+            
+            // Calculate progress based on actual bytes downloaded
+            // This ensures progress is monotonic (always increasing) and accurate
+            // Using bytes-based progress instead of file average prevents jumps when files complete
+            double averageProgress = totalSize > 0 
+                ? (double)actualTotalBytesDownloaded / totalSize * 100.0 
+                : 0.0;
+            
+            // Also calculate weighted average for reference
+            // This helps maintain accuracy when files are retrying
+            if (fileProgresses.Count > 0 && totalSize > 0)
+            {
+                // Calculate weighted average: sum(fileProgress * fileSize) / totalSize
+                double weightedSum = 0.0;
+                foreach (var kvp in fileProgresses)
+                {
+                    string fileName = kvp.Key;
+                    double fileProgress = kvp.Value;
+                    
+                    // Get file size, default to 0 if not found
+                    long fileSize = fileSizes.TryGetValue(fileName, out long size) ? size : 0;
+                    
+                    // Ensure fileProgress doesn't exceed 100% to prevent weighted average from exceeding 100%
+                    double clampedProgress = Math.Min(fileProgress, 100.0);
+                    weightedSum += clampedProgress * fileSize;
+                }
+                
+                double weightedAverage = weightedSum / totalSize;
+                
+                // Use the maximum to ensure progress never decreases, but cap at 100%
+                // This prevents progress from jumping backwards when files are retried
+                averageProgress = Math.Min(Math.Max(averageProgress, weightedAverage), 100.0);
+            }
+            
+            // Ensure progress never exceeds 100%
+            averageProgress = Math.Min(averageProgress, 100.0);
+            
+            // Update overall progress with average file progress
+            OnOverallProgressChanged(new OverallProgress
+            {
+                FilesCompleted = completedFiles,
+                TotalFiles = totalFiles,
+                TotalBytesDownloaded = actualTotalBytesDownloaded,
+                TotalBytes = totalSize,
+                AverageFileProgress = averageProgress
+            });
         }
 
         private void OnOverallProgressChanged(OverallProgress progress)
